@@ -1,0 +1,16 @@
+{
+  "name": "messaging-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for peer-to-peer messaging",
+  "main": "websocket-server.js",
+  "scripts": {
+    "start": "node websocket-server.js",
+    "dev": "nodemon websocket-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
