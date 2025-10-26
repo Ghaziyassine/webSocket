@@ -8,7 +8,7 @@
     "dev": "nodemon websocket-server.js"
   },
   "dependencies": {
-    "ws": "^8.14.2"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
