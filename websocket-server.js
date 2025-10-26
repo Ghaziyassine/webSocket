@@ -100,10 +100,18 @@ wss.on('connection', (ws) => {
           
           // Send recent messages to new participant
           existingRoom.messages.slice(-10).forEach(msg => {
-            sendToClient(ws, {
-              type: 'message',
-              ...msg
-            });
+            if (msg.type === 'image') {
+              // spread first, then set the outgoing envelope type so it is not overridden
+              sendToClient(ws, {
+                ...msg,
+                type: 'image_message'
+              });
+            } else {
+              sendToClient(ws, {
+                ...msg,
+                type: 'message'
+              });
+            }
           });
           
           // Notify other participants
@@ -162,6 +170,80 @@ wss.on('connection', (ws) => {
           });
           
           console.log(`Message sent in room ${roomId}: ${message.text.substring(0, 50)}...`);
+          break;
+
+        case 'send_image':
+          const imageRoomId = clientRooms.get(ws);
+          if (!imageRoomId) {
+            sendToClient(ws, {
+              type: 'error',
+              error: 'Not in a room',
+              success: false
+            });
+            break;
+          }
+          
+          const imageRoom = rooms.get(imageRoomId);
+          if (!imageRoom) {
+            sendToClient(ws, {
+              type: 'error',
+              error: 'Room not found',
+              success: false
+            });
+            break;
+          }
+
+          // Validate image data
+          if (!message.imageData || !message.fileName || !message.mimeType) {
+            sendToClient(ws, {
+              type: 'error',
+              error: 'Invalid image data',
+              success: false
+            });
+            break;
+          }
+
+          // Check file size (limit to 5MB in base64)
+          const imageSize = (message.imageData.length * 3) / 4; // Approximate size in bytes
+          if (imageSize > 5 * 1024 * 1024) {
+            sendToClient(ws, {
+              type: 'error',
+              error: 'Image too large (max 5MB)',
+              success: false
+            });
+            break;
+          }
+          
+          const imageMessageData = {
+            id: crypto.randomUUID(),
+            type: 'image',
+            imageData: message.imageData,
+            fileName: message.fileName,
+            mimeType: message.mimeType,
+            timestamp: new Date().toISOString(),
+            sender: message.sender || 'Anonymous'
+          };
+          
+          // Store image message in room history
+          imageRoom.messages.push(imageMessageData);
+          
+          // Keep only last 50 messages
+          if (imageRoom.messages.length > 50) {
+            imageRoom.messages = imageRoom.messages.slice(-50);
+          }
+          
+          // Broadcast to all clients in room
+          imageRoom.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+              // make sure the envelope type is 'image_message' (override any internal 'type')
+              sendToClient(client, {
+                ...imageMessageData,
+                type: 'image_message'
+              });
+            }
+          });
+          
+          console.log(`Image sent in room ${imageRoomId}: ${message.fileName}`);
           break;
 
         case 'leave_room':

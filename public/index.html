@@ -243,6 +243,26 @@
             line-height: 1.4;
         }
 
+        .message-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin-top: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-image:hover {
+            transform: scale(1.02);
+        }
+
+        .image-filename {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
         .system-message {
             text-align: center;
             color: #666;
@@ -291,6 +311,71 @@
             align-items: center;
             justify-content: center;
             font-size: 1.2rem;
+        }
+
+        .image-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            margin-right: 5px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .image-preview {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            cursor: pointer;
+        }
+
+        .image-preview img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+        }
+
+        .upload-progress {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            z-index: 3000;
+            display: none;
+            text-align: center;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            transition: width 0.3s ease;
+            width: 0%;
         }
 
         .notification {
@@ -404,12 +489,28 @@
 
                 <div class="message-input-container" id="messageInputContainer" style="display: none;">
                     <div class="message-input-group">
+                        <input type="file" id="imageInput" class="file-input" accept="image/*" />
+                        <button class="btn-secondary image-btn" id="imageBtn" title="Send Image">📷</button>
                         <textarea id="messageInput" placeholder="Type your message..." rows="1"></textarea>
                         <button class="btn-primary send-btn" id="sendBtn">📤</button>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Image preview modal -->
+    <div class="image-preview" id="imagePreview">
+        <img id="previewImage" alt="Image preview" />
+    </div>
+
+    <!-- Upload progress modal -->
+    <div class="upload-progress" id="uploadProgress">
+        <div>Uploading image...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div id="progressText">0%</div>
     </div>
 
     <script>
@@ -448,6 +549,15 @@
                 this.messageInputContainer = document.getElementById('messageInputContainer');
                 this.messageInput = document.getElementById('messageInput');
                 this.sendBtn = document.getElementById('sendBtn');
+                
+                // Image functionality
+                this.imageInput = document.getElementById('imageInput');
+                this.imageBtn = document.getElementById('imageBtn');
+                this.imagePreview = document.getElementById('imagePreview');
+                this.previewImage = document.getElementById('previewImage');
+                this.uploadProgress = document.getElementById('uploadProgress');
+                this.progressFill = document.getElementById('progressFill');
+                this.progressText = document.getElementById('progressText');
             }
 
             bindEvents() {
@@ -464,6 +574,11 @@
                         this.sendMessage();
                     }
                 });
+                
+                // Image functionality
+                this.imageBtn.addEventListener('click', () => this.imageInput.click());
+                this.imageInput.addEventListener('change', (e) => this.handleImageSelect(e));
+                this.imagePreview.addEventListener('click', () => this.closeImagePreview());
                 
                 // Username change
                 this.usernameInput.addEventListener('change', (e) => {
@@ -584,6 +699,10 @@
                     case 'message':
                         this.addMessage(message);
                         break;
+
+                    case 'image_message':
+                        this.addImageMessage(message);
+                        break;
                         
                     case 'participant_joined':
                         this.updateParticipantCount(message.participantCount);
@@ -657,6 +776,86 @@
                 this.messageInput.style.height = 'auto';
             }
 
+            handleImageSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Validate file type
+                if (!file.type.startsWith('image/')) {
+                    this.showNotification('Please select an image file', 'error');
+                    return;
+                }
+
+                // Validate file size (5MB limit)
+                if (file.size > 5 * 1024 * 1024) {
+                    this.showNotification('Image too large (max 5MB)', 'error');
+                    return;
+                }
+
+                if (!this.currentRoom) {
+                    this.showNotification('Join a room first', 'error');
+                    return;
+                }
+
+                this.uploadImage(file);
+            }
+
+            uploadImage(file) {
+                this.showUploadProgress();
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const base64Data = e.target.result.split(',')[1]; // Remove data:image/...;base64,
+                    
+                    this.updateUploadProgress(100);
+                    
+                    setTimeout(() => {
+                        this.sendToServer({
+                            type: 'send_image',
+                            imageData: base64Data,
+                            fileName: file.name,
+                            mimeType: file.type,
+                            sender: this.currentUser
+                        });
+                        
+                        this.hideUploadProgress();
+                        this.imageInput.value = ''; // Reset file input
+                    }, 500);
+                };
+                
+                reader.onerror = () => {
+                    this.hideUploadProgress();
+                    this.showNotification('Failed to read image file', 'error');
+                };
+                
+                // Simulate progress for user feedback
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 30;
+                    if (progress > 90) {
+                        clearInterval(progressInterval);
+                        progress = 90;
+                    }
+                    this.updateUploadProgress(progress);
+                }, 100);
+                
+                reader.readAsDataURL(file);
+            }
+
+            showUploadProgress() {
+                this.uploadProgress.style.display = 'block';
+                this.updateUploadProgress(0);
+            }
+
+            hideUploadProgress() {
+                this.uploadProgress.style.display = 'none';
+            }
+
+            updateUploadProgress(percentage) {
+                this.progressFill.style.width = percentage + '%';
+                this.progressText.textContent = Math.round(percentage) + '%';
+            }
+
             sendToServer(message) {
                 if (this.socket && this.socket.readyState === WebSocket.OPEN) {
                     this.socket.send(JSON.stringify(message));
@@ -680,6 +879,38 @@
                 
                 this.messagesEl.appendChild(messageEl);
                 this.scrollToBottom();
+            }
+
+            addImageMessage(message) {
+                const messageEl = document.createElement('div');
+                const isOwnMessage = message.sender === this.currentUser;
+                
+                messageEl.className = `message ${isOwnMessage ? 'own' : 'other'}`;
+                
+                const imageSrc = `data:${message.mimeType};base64,${message.imageData}`;
+                
+                messageEl.innerHTML = `
+                    <div class="message-header">
+                        <span class="message-sender">${this.escapeHtml(message.sender)}</span>
+                        <span class="message-time">${this.formatTime(message.timestamp)}</span>
+                    </div>
+                    <div class="message-text">
+                        <img src="${imageSrc}" alt="${this.escapeHtml(message.fileName)}" class="message-image" onclick="window.chatApp.showImagePreview('${imageSrc}')" />
+                        <div class="image-filename">${this.escapeHtml(message.fileName)}</div>
+                    </div>
+                `;
+                
+                this.messagesEl.appendChild(messageEl);
+                this.scrollToBottom();
+            }
+
+            showImagePreview(imageSrc) {
+                this.previewImage.src = imageSrc;
+                this.imagePreview.style.display = 'flex';
+            }
+
+            closeImagePreview() {
+                this.imagePreview.style.display = 'none';
             }
 
             addSystemMessage(text) {
@@ -729,6 +960,7 @@
                 this.createRoomBtn.disabled = false;
                 this.joinRoomBtn.disabled = false;
                 this.sendBtn.disabled = false;
+                this.imageBtn.disabled = false;
                 this.roomKeyInput.disabled = false;
                 this.messageInput.disabled = false;
             }
@@ -737,6 +969,7 @@
                 this.createRoomBtn.disabled = true;
                 this.joinRoomBtn.disabled = true;
                 this.sendBtn.disabled = true;
+                this.imageBtn.disabled = true;
                 this.roomKeyInput.disabled = true;
                 this.messageInput.disabled = true;
             }
@@ -798,8 +1031,8 @@
 
         // Initialize the chat application
         document.addEventListener('DOMContentLoaded', () => {
-            const chat = new WebSocketChat();
-            chat.startPinging();
+            window.chatApp = new WebSocketChat();
+            window.chatApp.startPinging();
         });
     </script>
 </body>
