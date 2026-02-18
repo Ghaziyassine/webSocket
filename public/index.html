@@ -348,6 +348,43 @@
             object-fit: contain;
         }
 
+        .paste-preview {
+            display: none;
+            padding: 10px 20px;
+            border-top: 2px solid #4CAF50;
+            background: #f0faf0;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .paste-preview.active {
+            display: flex;
+        }
+
+        .paste-preview img {
+            max-width: 120px;
+            max-height: 80px;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+            object-fit: cover;
+        }
+
+        .paste-preview-info {
+            flex: 1;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        .paste-preview-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .paste-preview-actions button {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+        }
+
         .upload-progress {
             position: fixed;
             top: 50%;
@@ -488,10 +525,18 @@
                 </div>
 
                 <div class="message-input-container" id="messageInputContainer" style="display: none;">
+                    <div class="paste-preview" id="pastePreview">
+                        <img id="pastePreviewImage" alt="Pasted image" />
+                        <div class="paste-preview-info">Pasted image ready to send</div>
+                        <div class="paste-preview-actions">
+                            <button class="btn-primary" id="pasteSendBtn">Send</button>
+                            <button class="btn-danger" id="pasteCancelBtn">Cancel</button>
+                        </div>
+                    </div>
                     <div class="message-input-group">
                         <input type="file" id="imageInput" class="file-input" accept="image/*" />
                         <button class="btn-secondary image-btn" id="imageBtn" title="Send Image">📷</button>
-                        <textarea id="messageInput" placeholder="Type your message..." rows="1"></textarea>
+                        <textarea id="messageInput" placeholder="Type your message... (paste images here)" rows="1"></textarea>
                         <button class="btn-primary send-btn" id="sendBtn">📤</button>
                     </div>
                 </div>
@@ -558,6 +603,13 @@
                 this.uploadProgress = document.getElementById('uploadProgress');
                 this.progressFill = document.getElementById('progressFill');
                 this.progressText = document.getElementById('progressText');
+                
+                // Paste preview
+                this.pastePreview = document.getElementById('pastePreview');
+                this.pastePreviewImage = document.getElementById('pastePreviewImage');
+                this.pasteSendBtn = document.getElementById('pasteSendBtn');
+                this.pasteCancelBtn = document.getElementById('pasteCancelBtn');
+                this.pendingPasteFile = null;
             }
 
             bindEvents() {
@@ -579,6 +631,11 @@
                 this.imageBtn.addEventListener('click', () => this.imageInput.click());
                 this.imageInput.addEventListener('change', (e) => this.handleImageSelect(e));
                 this.imagePreview.addEventListener('click', () => this.closeImagePreview());
+                
+                // Paste image support
+                this.messageInput.addEventListener('paste', (e) => this.handlePaste(e));
+                this.pasteSendBtn.addEventListener('click', () => this.sendPastedImage());
+                this.pasteCancelBtn.addEventListener('click', () => this.cancelPastedImage());
                 
                 // Username change
                 this.usernameInput.addEventListener('change', (e) => {
@@ -798,6 +855,55 @@
                 }
 
                 this.uploadImage(file);
+            }
+
+            handlePaste(event) {
+                const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        event.preventDefault();
+                        const file = item.getAsFile();
+                        if (!file) return;
+
+                        if (file.size > 5 * 1024 * 1024) {
+                            this.showNotification('Pasted image too large (max 5MB)', 'error');
+                            return;
+                        }
+
+                        if (!this.currentRoom) {
+                            this.showNotification('Join a room first', 'error');
+                            return;
+                        }
+
+                        // Show paste preview
+                        this.pendingPasteFile = file;
+                        const url = URL.createObjectURL(file);
+                        this.pastePreviewImage.src = url;
+                        this.pastePreview.classList.add('active');
+                        return;
+                    }
+                }
+            }
+
+            sendPastedImage() {
+                if (!this.pendingPasteFile) return;
+                const file = this.pendingPasteFile;
+                // Give it a readable name since clipboard images have generic names
+                const name = file.name && file.name !== 'image.png'
+                    ? file.name
+                    : `pasted-image-${Date.now()}.png`;
+                const renamedFile = new File([file], name, { type: file.type });
+                this.cancelPastedImage();
+                this.uploadImage(renamedFile);
+            }
+
+            cancelPastedImage() {
+                this.pendingPasteFile = null;
+                this.pastePreview.classList.remove('active');
+                if (this.pastePreviewImage.src) {
+                    URL.revokeObjectURL(this.pastePreviewImage.src);
+                    this.pastePreviewImage.src = '';
+                }
             }
 
             uploadImage(file) {
